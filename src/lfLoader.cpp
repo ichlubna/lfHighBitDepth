@@ -37,7 +37,7 @@ void LfLoader::loadImage(std::string path, glm::uvec2 coords)
     float *pixels;
     const char *error{nullptr};
     int ret = LoadEXR(&pixels, &resolution.x, &resolution.y, path.c_str(), &error);
-    resolution.z = 3;
+    resolution.z = 4;
 
     if (ret != TINYEXR_SUCCESS)
     {
@@ -61,7 +61,7 @@ void LfLoader::loadData(std::string path)
     auto files = listPath(path);
     if(files.empty())
         throw std::runtime_error("The input directory is empty!");
-    initGrid(glm::uvec2(2,2));
+    initGrid(glm::uvec2(1,1));
     if(files.size() != 4)
         throw std::runtime_error("The number of input files is wrong. Expecting 4 input views (2x2 grid).");
 
@@ -70,9 +70,9 @@ void LfLoader::loadData(std::string path)
     int i{0};
     for(auto const &file : files)
     {
-        i++;
         int row{i/2};
-        int col{i%2};        
+        int col{i%2};
+        i++;
         loadImage(path/file, {row, col}); 
         bar.add(); 
     }

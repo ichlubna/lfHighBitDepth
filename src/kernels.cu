@@ -40,8 +40,9 @@ namespace Kernels
     __device__ int2 getImgCoords()
     {
         int2 coords;
-        coords.x = (threadIdx.x + blockIdx.x * blockDim.x);
-        coords.y = (threadIdx.y + blockIdx.y * blockDim.y);
+        constexpr int SUBSAMPLING{2};
+        coords.x = (threadIdx.x + blockIdx.x * blockDim.x)*SUBSAMPLING;
+        coords.y = (threadIdx.y + blockIdx.y * blockDim.y)*SUBSAMPLING;
         return coords;
     }
 
@@ -66,7 +67,7 @@ namespace Kernels
         }
         
         
-        __device__ float4 load(int imageID, float2 coords)
+        __device__ float4 load(int imageID, int2 coords)
         {
             int id = Constants::textures()[imageID];
             float2 halfPx = Constants::halfPixelSize(); 
@@ -222,16 +223,16 @@ namespace Kernels
 */
     __global__ void process()
     {
-        int2 threadCoords = getImgCoords();
-        if(coordsOutside(threadCoords, Constants::imgRes()))
+        int2 coords = getImgCoords();
+        if(coordsOutside(coords, Constants::imgRes()))
             return;
-        auto coords = normalizeCoords(threadCoords); 
-
-        float focus{0};
-        
-        //auto color = Pixel::load(0, threadCoords);
-        float4 color{1.0, 0.5, 0.7, 0.3};
-        Pixel::store(color, FileNames::RENDER_IMAGE, threadCoords);
+ 
+        for(int pixelID = 0; pixelID < 4; pixelID++)
+        {
+            int2 pixelCoords{coords.x+pixelID/2, coords.y+pixelID%2};
+            auto color = Pixel::load(0, pixelCoords);
+            Pixel::store(color, FileNames::RENDER_IMAGE, pixelCoords);
+        }
     }
 
 }

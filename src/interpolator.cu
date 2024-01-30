@@ -8,8 +8,6 @@
 #include "kernels.cu"
 #include "lfLoader.h"
 #include "libs/loadingBar/loadingbar.hpp"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "libs/stb_image_write.h"
 
 class Timer
 {
@@ -55,12 +53,12 @@ void Interpolator::init()
 int Interpolator::createTextureObject(const float *data, glm::ivec3 size)
 {
     cudaTextureAddressMode cudaAddressMode = cudaAddressModeClamp;
-    size_t pitch = size.x*size.z;
+    size_t pitch = size.x*size.z*sizeof(float);
     void *imageData;
-    cudaMalloc(&imageData, size.x*size.y*size.z);
+    cudaMalloc(&imageData, size.x*size.y*size.z*sizeof(float));
     cudaMemcpy2D(imageData, pitch, data, pitch, pitch, size.y, cudaMemcpyHostToDevice);
 
-    cudaChannelFormatDesc channels = cudaCreateChannelDesc(32, 32, 32, 0, cudaChannelFormatKindFloat);
+    cudaChannelFormatDesc channels = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
         cudaArray *arr;
     cudaMallocArray(&arr, &channels, size.x, size.y);
     cudaMemcpy2DToArray(arr, 0, 0, imageData, pitch, pitch, size.y, cudaMemcpyDeviceToDevice);   
@@ -72,8 +70,7 @@ int Interpolator::createTextureObject(const float *data, glm::ivec3 size)
     texRes.res.array.array = arr;
     cudaTextureDesc texDescr;
     memset(&texDescr, 0, sizeof(cudaTextureDesc));
-    texDescr.filterMode = cudaFilterModeLinear;
-    texDescr.normalizedCoords = true;
+    texDescr.filterMode = cudaFilterModePoint;
     texDescr.addressMode[0] = cudaAddressMode;
     texDescr.addressMode[1] = cudaAddressMode;
     texDescr.readMode = cudaReadModeElementType;
@@ -118,7 +115,7 @@ Interpolator::TexturesInfo Interpolator::loadTextures(std::string input, void **
 
     std::cout << "Uploading content of "+input+" to GPU..." << std::endl;
     LoadingBar bar(lfLoader.imageCount());
-    
+   
     std::vector<cudaTextureObject_t> textureObjects;
     for(int col=0; col<textColsRows.x; col++)
         for(int row=0; row<textColsRows.y; row++)
@@ -266,16 +263,18 @@ glm::vec3 Interpolator::InterpolationParams::parseCoordinates(std::string coordi
 void Interpolator::runKernel(KernelType type, KernelParams params)
 {
     dim3 dimBlock(16, 16, 1);
+    constexpr size_t SUBSAMPLING{2};
     switch(type)
     {
         case PROCESS:
         {
-            dim3 dimGrid(glm::ceil(static_cast<float>(resolution.x)/dimBlock.x), glm::ceil(static_cast<float>(resolution.y)/dimBlock.y), 1);
+            dim3 dimGrid(glm::ceil(static_cast<float>(resolution.x/SUBSAMPLING)/dimBlock.x), glm::ceil(static_cast<float>(resolution.y/SUBSAMPLING)/dimBlock.y), 1);
             Kernels::process<<<dimGrid, dimBlock, sharedSize>>>();
         }
         break;
     }
     cudaDeviceSynchronize();
+    //std::cerr << "Error: " << cudaPeekAtLastError() << std::endl;
 }
 
 void Interpolator::testKernel(KernelType kernel, std::string label, int runs)
