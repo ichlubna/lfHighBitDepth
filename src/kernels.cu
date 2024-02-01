@@ -27,10 +27,37 @@ namespace Kernels
         __device__ constexpr int MAX_IMAGES{4};
         __constant__ float weights[MAX_IMAGES];
         __constant__ float2 offsets[MAX_IMAGES];
-        __constant__ float2 blockOffsets[BLOCK_OFFSET_COUNT];
+        __constant__ int2 blockOffsets[BLOCK_OFFSET_COUNT];
     }
 
     //extern __shared__ half localMemory[];
+
+    __device__ float4 operator+ (const float4  &a, const float4 &b)
+    {
+        float4 result;
+        result.x = a.x + b.x;
+        result.y = a.y + b.y;
+        result.z = a.z + b.z;
+        return result;
+    }
+    
+    __device__ float4 operator/ (const float4  &a, const float &b)
+    {
+        float4 result;
+        result.x = a.x/b;
+        result.y = a.y/b;
+        result.z = a.z/b;
+        return result;
+    }
+    
+    __device__ float4 operator* (const float  &a, const float4 &b)
+    {
+        float4 result;
+        result.x = a*b.x;
+        result.y = a*b.y;
+        result.z = a*b.z;
+        return result;
+    }
 
     __device__ bool coordsOutside(int2 coords, int2 resolution)
     {
@@ -54,18 +81,17 @@ namespace Kernels
     }
    
     namespace Pixel
-    {/*
-        __device__ float distance(PixelArray &a, PixelArray &b)
+    {
+        __device__ float distance(float3 &a, float3 &b)
         {
-            float dist = fmaxf(fmaxf(fabsf(a[0]-b[0]), fabsf(a[1]-b[1])), fabsf(a[2]-b[2]));
+            float dist = fmaxf(fmaxf(fabsf(a.x-b.x), fabsf(a.y-b.y)), fabsf(a.z-b.z));
             return dist;
         }
-*/
+
         __device__ void store(float4 px, int imageID, int2 coords)
         {
             surf2Dwrite<float4>(px, Constants::surfaces()[imageID], coords.x*sizeof(float4), coords.y);
-        }
-        
+        } 
         
         __device__ float4 load(int imageID, int2 coords)
         {
@@ -74,62 +100,58 @@ namespace Kernels
             return tex2D<float4>(id, coords.x+halfPx.x, coords.y+halfPx.y);
         }
     }
-/* 
+ 
         class ElementRange
         {
             private:
-            PixelArray minCol{float4{FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX}};
-            PixelArray maxCol{float4{FLT_MIN, FLT_MIN, FLT_MIN, FLT_MIN}};
+            float3 minCol{FLT_MAX, FLT_MAX, FLT_MAX};
+            float3 maxCol{FLT_MIN, FLT_MIN, FLT_MIN};
             
             public:
-            __device__ void add(PixelArray val)
+            __device__ void add(float4 val)
             {
-                minCol[0] = fminf(minCol[0],val[0]);
-                minCol[1] = fminf(minCol[1],val[1]);
-                minCol[2] = fminf(minCol[2],val[2]);
-                maxCol[0] = fmaxf(maxCol[0],val[0]);
-                maxCol[1] = fmaxf(maxCol[1],val[1]);
-                maxCol[2] = fmaxf(maxCol[2],val[2]);
+                minCol.x = fminf(minCol.x, val.x);
+                minCol.y = fminf(minCol.y, val.y);
+                minCol.z = fminf(minCol.z, val.z);
+                maxCol.x = fmaxf(maxCol.x, val.x);
+                maxCol.y = fmaxf(maxCol.y, val.y);
+                maxCol.z = fmaxf(maxCol.z, val.z);
             }
             __device__ float dispersionAmount()
             {
                 return Pixel::distance(minCol, maxCol); 
             }      
-            __device__ ElementRange& operator+=(const PixelArray& rhs){
+            __device__ ElementRange& operator+=(const float4& rhs){
 
               add(rhs);
               return *this;
             }
         };
 
-
-    __device__ float2 focusCoords(int gridID, float2 pxCoords, float focus)
+    __device__ int2 focusCoords(int gridID, int2 pxCoords, float focus)
     {
         float2 offset = Constants::offsets[gridID];
-        //float2 coords{offset.x*focus+pxCoords.x, offset.y*focus+pxCoords.y};
-        float2 coords{__fmaf_rn(offset.x, focus, pxCoords.x), __fmaf_rn(offset.y, focus, pxCoords.y)};
-        return coords;
+        //return {static_cast<int>(round(offset.x*focus+pxCoords.x)), static_cast<int>(round(offset.y*focus+pxCoords.y))};
+        return {__float2int_rn(__fmaf_rn(offset.x, focus, pxCoords.x)),__float2int_rn(__fmaf_rn(offset.y, focus, pxCoords.y))};
     }
 
     namespace FocusLevel
     {      
-        template<int blockSize, typename T> 
-        __device__ void evaluateBlock(int gridID, float focus, float2 coords, T *dispersions)
+        __device__ void evaluateBlock(int gridID, float focus, int2 coords, ElementRange *dispersions)
         {
-            for(int blockPx=0; blockPx<blockSize; blockPx++)
+            for(int blockPx=0; blockPx<BLOCK_OFFSET_COUNT; blockPx++)
             {
-                float2 offset = Constants::blockOffsets[blockPx]; 
-                float2 inBlockCoords{coords.x+offset.x, coords.y+offset.y};
+                int2 offset = Constants::blockOffsets[blockPx]; 
+                int2 inBlockCoords{coords.x+offset.x, coords.y+offset.y};
                 auto px{Pixel::load(gridID, focusCoords(gridID, inBlockCoords, focus))};
                 dispersions[blockPx] += px;
             }
         }
 
-        template<typename T, int blockSize>
-        __device__ float evaluateDispersion(float2 coords, float focus)
+        __device__ float evaluateDispersion(int2 coords, float focus)
         {
             auto cr = Constants::colsRows();
-            T dispersionCalc[blockSize];
+            ElementRange dispersionCalc[BLOCK_OFFSET_COUNT];
                 
             int gridID = 0;
             for(int row=0; row<cr.y; row++) 
@@ -137,22 +159,20 @@ namespace Kernels
                 gridID = row*cr.x;
                 for(int col=0; col<cr.x; col++) 
                 {
-                    evaluateBlock<blockSize>(gridID, focus, coords, dispersionCalc);
+                    evaluateBlock(gridID, focus, coords, dispersionCalc);
                     gridID++;
                 }
             } 
             float finalDispersion{0};
-            for(int blockPx=0; blockPx<blockSize; blockPx++)
+            for(int blockPx=0; blockPx<BLOCK_OFFSET_COUNT; blockPx++)
                 finalDispersion += dispersionCalc[blockPx].dispersionAmount();
             return finalDispersion;
         }
-
-       
-        template<DispersionMode mode>
-        __device__ uchar4 render(float2 coords, float focus)
+ 
+        __device__ float4 render(int2 coords, float focus)
         {
             auto cr = Constants::colsRows();
-            PixelArray sum;
+            float4 sum;
             int gridID = 0; 
           
                 auto weights = Constants::weights;
@@ -162,12 +182,11 @@ namespace Kernels
                     for(int col=0; col<cr.x; col++) 
                     {
                         auto px{Pixel::load(gridID, focusCoords(gridID, coords, focus))};
-                        sum.addWeighted(weights[gridID], px);
+                        sum = sum + weights[gridID] * px;
                         gridID++;
                     }
                 }
-
-            return sum.uch4();
+            return sum;
         }      
     }
     
@@ -203,24 +222,24 @@ namespace Kernels
                 return b;
         }
 
-        __device__ float bruteForce(float2 coords)
+        __device__ float bruteForce(int2 coords)
         {
             int steps = 32;
             float stepSize{static_cast<float>(Constants::scanRangeSize())/steps};
             float focus{Constants::scanRange().x};
             Optimum optimum;
             
-            int wasMin{0};
-            int terminateIn{steps>>2}; 
             for(int step=0; step<steps; step++)
             {
+                float dispersion = FocusLevel::evaluateDispersion(coords, focus);
+                optimum.add(focus, dispersion);
                 focus += stepSize;  
             }
             return optimum.optimalFocus;
         }
 
     }
-*/
+
     __global__ void process()
     {
         int2 coords = getImgCoords();
@@ -230,9 +249,19 @@ namespace Kernels
         for(int pixelID = 0; pixelID < 4; pixelID++)
         {
             int2 pixelCoords{coords.x+pixelID/2, coords.y+pixelID%2};
-            auto color = Pixel::load(0, pixelCoords);
+            float4 color = {0,0,0,0};
+            for(int row=0; row<Constants::colsRows().y; row++) 
+            {     
+                int i = row*Constants::colsRows().x;
+                for(int col=0; col<Constants::colsRows().x; col++) 
+                {
+                    color = color + Pixel::load(i, focusCoords(i, pixelCoords, Constants::scanRange().x));
+                    i++;
+                }
+            }
+            color = color / 4.0f;
+            color.w = 1.0;
             Pixel::store(color, FileNames::RENDER_IMAGE, pixelCoords);
         }
     }
-
 }

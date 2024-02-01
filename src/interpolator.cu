@@ -178,10 +178,9 @@ void Interpolator::loadGPUConstants(InterpolationParams params)
     dataPointers[DataPointersIDs::TEXTURES] = reinterpret_cast<void*>(textureObjectsArr);
     cudaMemcpyToSymbol(Kernels::Constants::dataPointers, dataPointers.data(), dataPointers.size() * sizeof(void*));
             
-    int blockSampling = 1; 
-    float2 pixelSizeBlock{blockSampling*pixelSize.x, blockSampling*pixelSize.y}; 
-    std::vector<float2> blockOffsets{ {0.0f, 0.0f}, {-1.0f*pixelSizeBlock.x, 0.5f*pixelSizeBlock.y}, {0.5f*pixelSizeBlock.x, 1.0f*pixelSizeBlock.y}, {1.0f*pixelSizeBlock.x, -0.5f*pixelSizeBlock.y}, {-0.5f*pixelSizeBlock.x, -1.0f*pixelSizeBlock.y} };
-    cudaMemcpyToSymbol(Kernels::Constants::blockOffsets, blockOffsets.data(), BLOCK_OFFSET_COUNT * sizeof(float2));
+    constexpr int BLOCK_RADIUS = 1; 
+    std::vector<float2> blockOffsets{ {0, 0}, {1*BLOCK_RADIUS, 1*BLOCK_RADIUS}, {-1*BLOCK_RADIUS, -1*BLOCK_RADIUS}, {1*BLOCK_RADIUS, -1*BLOCK_RADIUS}, {-1*BLOCK_RADIUS, 1*BLOCK_RADIUS} };
+    cudaMemcpyToSymbol(Kernels::Constants::blockOffsets, blockOffsets.data(), BLOCK_OFFSET_COUNT * sizeof(int2));
 }
 
 void Interpolator::loadGPUOffsets(glm::vec2 viewCoordinates)
@@ -195,7 +194,8 @@ void Interpolator::loadGPUOffsets(glm::vec2 viewCoordinates)
         for(int col=0; col<colsRows.x; col++) 
         {
             float2 offset{(viewCoordinates.x-col)/colsRows.x, (viewCoordinates.y-row)/colsRows.y};
-            offset.y *= aspect;
+            offset.y *= resolution.y/aspect;
+            offset.x *= resolution.x;
             offsets[gridID] = offset;
             gridID++;
         }
@@ -307,7 +307,7 @@ void Interpolator::interpolate(InterpolationParams params)
 void Interpolator::storeResults(std::string path)
 {
     std::cout << "Storing results..." << std::endl;
-    LoadingBar bar(FileNames::OUTPUT_COUNT-1);
+    LoadingBar bar(FileNames::OUTPUT_COUNT);
     std::vector<float> data(resolution.x*resolution.y*DEVICE_CHANNELS, 255);
 
     size_t pitch = resolution.x*DEVICE_CHANNELS*sizeof(float);

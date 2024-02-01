@@ -5,14 +5,13 @@ TEMP=$(mktemp -d)
 wget https://merlin.fit.vutbr.cz/LightField/datasets/lfDataset/hdrData/cornell.zip -P $TEMP
 #cp cornell.zip $TEMP
 unzip $(ls $TEMP | head -1) -d $TEMP
-mkdir $1/data
+OUT=$1/data/
+mkdir $OUT
+NAMES=($OUT"00_00-topLeft.exr" $OUT"00_01-topRight.exr" $1"0.5_0.5-centerReference.exr" $OUT"01_00-bottomLeft.exr" $OUT"01_01-bottomRight.exr")
+ID=0
 for filename in $TEMP/*.exr; do
     f="$(basename -- $filename)"
-    ffmpeg -i $TEMP/$f -pix_fmt gbrapf32le $1/data/$f
+    ffmpeg -y -i $TEMP/$f -pix_fmt gbrapf32le ${NAMES[$ID]}
+    ID=$(( $ID+1 ))
 done
-mv $1/data/$(ls $1/data | head -3 | tail -n -1) $1/0.5_0.5-centerReference.exr
-mv $1/data/$(ls $1/data | head -1 | tail -n -1) $1/data/00_00-topLeft.exr
-mv $1/data/$(ls $1/data | head -2 | tail -n -1) $1/data/00_01-topRight.exr
-mv $1/data/$(ls $1/data | head -4 | tail -n -1) $1/data/01_00-bottomLeft.exr
-mv $1/data/$(ls $1/data | head -5 | tail -n -1) $1/data/01_01-bottomRight.exr
 rm -rf $TEMP
