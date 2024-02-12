@@ -40,6 +40,14 @@ namespace Kernels
         result.z = a.z + b.z;
         return result;
     }
+
+    __device__ int2 operator+ (const int2  &a, const int2 &b)
+    {
+        int2 result;
+        result.x = a.x + b.x;
+        result.y = a.y + b.y;
+        return result;
+    }
     
     __device__ float4 operator/ (const float4  &a, const float &b)
     {
@@ -98,6 +106,63 @@ namespace Kernels
             int id = Constants::textures()[imageID];
             float2 halfPx = Constants::halfPixelSize(); 
             return tex2D<float4>(id, coords.x+halfPx.x, coords.y+halfPx.y);
+        } 
+
+        __device__ float4 gammaCorrect(float4 color)
+        {
+            constexpr float GAMMA{2.2};
+            float4 outColor;
+            float *outColorArr = reinterpret_cast<float*>(&outColor);
+            float *colorArr = reinterpret_cast<float*>(&color);
+            for(int channel=0; channel<CHANNEL_COUNT; channel++)
+            {
+                float gammaCorrected = powf(colorArr[channel], 1.0f / GAMMA);
+                outColorArr[channel] = min(1.0f, max(0.0f, gammaCorrected));
+            }
+            return outColor;
+        }
+       
+        __device__ float4 quantize(float4 color, float maxValue)
+        {
+            float4 outColor;
+            float *outColorArr = reinterpret_cast<float*>(&outColor);
+            float *colorArr = reinterpret_cast<float*>(&color);
+            for(int channel=0; channel<CHANNEL_COUNT; channel++)
+            {
+                outColorArr[channel] = round(colorArr[channel] * maxValue);
+            }
+            return outColor;
+        }
+
+        // shift from 0.5 to 0.9
+        __device__ float logFormula(float value, float shift)
+        {
+            return logf(value) + shift;
+        }
+       
+        //  order from 0.1 to 0.9
+        __device__ float exponentialFormula(float value, float order)
+        {
+            return powf(value, order);
+        }
+        
+        //  order from 2 to 8 with step 0.4 
+        __device__ float exponentialOddFormula(float value, float order)
+        {
+            float o = static_cast<int>(round(order))*0.4;
+            return powf(value-1, o) + 1;
+        }
+
+        __device__ float4 colorProfile(float4 color)
+        {
+            float4 outColor;
+            float *outColorArr = reinterpret_cast<float*>(&outColor);
+            float *colorArr = reinterpret_cast<float*>(&color);
+            for(int channel=0; channel<CHANNEL_COUNT; channel++)
+            {
+                outColorArr[channel] = colorArr[channel];
+            }
+            return outColor;
         }
     }
  
@@ -237,7 +302,38 @@ namespace Kernels
             }
             return optimum.optimalFocus;
         }
+    }
 
+    __device__ void focusAndRender(int2 coords, int type)
+    {
+        float4 color = {0,0,0,0};
+        for(int row=0; row<Constants::colsRows().y; row++) 
+        {     
+            int i = row*Constants::colsRows().x;
+            for(int col=0; col<Constants::colsRows().x; col++) 
+            {
+                color = color + Pixel::load(i, focusCoords(i, coords, Constants::scanRange().x));
+                i++;
+            }
+        }
+        color = color / 4.0f;
+        color = Pixel::load(0, focusCoords(0, coords, 0));
+        color = Pixel::colorProfile(color);
+        color.w = 1.0;
+        Pixel::store(color, FileNames::RENDER_IMAGE, coords);
+    }
+
+    __device__ void render(int2 cornerCoords)
+    {
+        int2 coords = cornerCoords;
+        int type{0};
+        for(int x=0; x<2; x++)
+            for(int y=0; y<2; y++)
+            {
+                coords = cornerCoords + int2{x, y};
+                focusAndRender(coords, type);
+                type++;
+            }
     }
 
     __global__ void process()
@@ -245,23 +341,6 @@ namespace Kernels
         int2 coords = getImgCoords();
         if(coordsOutside(coords, Constants::imgRes()))
             return;
- 
-        for(int pixelID = 0; pixelID < 4; pixelID++)
-        {
-            int2 pixelCoords{coords.x+pixelID/2, coords.y+pixelID%2};
-            float4 color = {0,0,0,0};
-            for(int row=0; row<Constants::colsRows().y; row++) 
-            {     
-                int i = row*Constants::colsRows().x;
-                for(int col=0; col<Constants::colsRows().x; col++) 
-                {
-                    color = color + Pixel::load(i, focusCoords(i, pixelCoords, Constants::scanRange().x));
-                    i++;
-                }
-            }
-            color = color / 4.0f;
-            color.w = 1.0;
-            Pixel::store(color, FileNames::RENDER_IMAGE, pixelCoords);
-        }
+        render(coords); 
     }
 }
