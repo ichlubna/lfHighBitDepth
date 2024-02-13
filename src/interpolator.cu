@@ -162,13 +162,17 @@ void Interpolator::loadGPUConstants(InterpolationParams params)
     cudaMemcpyToSymbol(Kernels::Constants::intConstants, intValues.data(), intValues.size() * sizeof(int));
     
     std::vector<float> floatValues(FloatConstantIDs::FLOAT_CONSTANTS_COUNT);
-    float rangeSize = params.scanRange.y - params.scanRange.x; 
-    floatValues[FloatConstantIDs::SCAN_RANGE_SIZE] = rangeSize;
-    floatValues[FloatConstantIDs::SCAN_RANGE_START] = params.scanRange.x;
-    floatValues[FloatConstantIDs::SCAN_RANGE_END] = params.scanRange.y;
+    auto range = params.scanRange;
+    for(int i=0; i<4; i++)
+    {
+        float rangeSize = range.y - range.x; 
+        floatValues[FloatConstantIDs::SCAN_RANGE_START_1+i] = range.x;
+        float step = rangeSize/FOCUS_STEPS_COUNT;
+        floatValues[FloatConstantIDs::SCAN_RANGE_STEP_1+i] = step;
+        range += glm::vec2{step, -step}/2.5f;
+    }
+
     float2 pixelSize{1.0f/resolution.x, 1.0f/resolution.y}; 
-    floatValues[FloatConstantIDs::PX_SIZE_X] = pixelSize.x;
-    floatValues[FloatConstantIDs::PX_SIZE_Y] = pixelSize.y;
     floatValues[FloatConstantIDs::PX_SIZE_X_HALF] = pixelSize.x/2.0f;
     floatValues[FloatConstantIDs::PX_SIZE_Y_HALF] = pixelSize.y/2.0f;
     cudaMemcpyToSymbol(Kernels::Constants::floatConstants, floatValues.data(), floatValues.size() * sizeof(float));

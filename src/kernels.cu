@@ -19,9 +19,8 @@ namespace Kernels
         __device__ cudaTextureObject_t* textures(){return reinterpret_cast<cudaTextureObject_t*>(dataPointers[DataPointersIDs::TEXTURES]);} 
         
         __constant__ float floatConstants[FloatConstantIDs::FLOAT_CONSTANTS_COUNT];
-        __device__ float2 scanRange(){return {floatConstants[FloatConstantIDs::SCAN_RANGE_START], floatConstants[FloatConstantIDs::SCAN_RANGE_END]};}
-        __device__ float scanRangeSize(){return floatConstants[FloatConstantIDs::SCAN_RANGE_SIZE];}
-        __device__ float2 pixelSize(){return {floatConstants[FloatConstantIDs::PX_SIZE_X], floatConstants[FloatConstantIDs::PX_SIZE_Y]};}
+        __device__ float scanStart(int i){return floatConstants[FloatConstantIDs::SCAN_RANGE_START_1+i];}
+        __device__ float scanStep(int i){return floatConstants[FloatConstantIDs::SCAN_RANGE_STEP_1+i];}
         __device__ float2 halfPixelSize(){return {floatConstants[FloatConstantIDs::PX_SIZE_X_HALF], floatConstants[FloatConstantIDs::PX_SIZE_Y_HALF]};}
 
         __device__ constexpr int MAX_IMAGES{4};
@@ -237,20 +236,20 @@ namespace Kernels
         __device__ float4 render(int2 coords, float focus)
         {
             auto cr = Constants::colsRows();
-            float4 sum;
-            int gridID = 0; 
-          
-                auto weights = Constants::weights;
-                for(int row=0; row<cr.y; row++) 
-                {     
-                    gridID = row*cr.x;
-                    for(int col=0; col<cr.x; col++) 
-                    {
-                        auto px{Pixel::load(gridID, focusCoords(gridID, coords, focus))};
-                        sum = sum + weights[gridID] * px;
-                        gridID++;
-                    }
+            float4 sum{0,0,0,0};
+            int gridID = 0;  
+            auto weights = Constants::weights;
+            for(int row=0; row<cr.y; row++) 
+            {     
+                gridID = row*cr.x;
+                for(int col=0; col<cr.x; col++) 
+                {
+                    auto px{Pixel::load(gridID, focusCoords(gridID, coords, focus))};
+                    sum = sum + weights[gridID] * px;
+                    gridID++;
                 }
+            }
+            sum.w = 1.0f;
             return sum;
         }      
     }
@@ -287,14 +286,13 @@ namespace Kernels
                 return b;
         }
 
-        __device__ float bruteForce(int2 coords)
+        __device__ float bruteForce(int2 coords, int pixelID)
         {
-            int steps = 32;
-            float stepSize{static_cast<float>(Constants::scanRangeSize())/steps};
-            float focus{Constants::scanRange().x};
+            float focus{Constants::scanStart(pixelID)};
+            float stepSize{Constants::scanStep(pixelID)};
             Optimum optimum;
             
-            for(int step=0; step<steps; step++)
+            for(int step=0; step<FOCUS_STEPS_COUNT; step++)
             {
                 float dispersion = FocusLevel::evaluateDispersion(coords, focus);
                 optimum.add(focus, dispersion);
@@ -304,35 +302,26 @@ namespace Kernels
         }
     }
 
-    __device__ void focusAndRender(int2 coords, int type)
-    {
-        float4 color = {0,0,0,0};
-        for(int row=0; row<Constants::colsRows().y; row++) 
-        {     
-            int i = row*Constants::colsRows().x;
-            for(int col=0; col<Constants::colsRows().x; col++) 
-            {
-                color = color + Pixel::load(i, focusCoords(i, coords, Constants::scanRange().x));
-                i++;
-            }
-        }
-        color = color / 4.0f;
-        color = Pixel::load(0, focusCoords(0, coords, 0));
-        color = Pixel::colorProfile(color);
-        color.w = 1.0;
-        Pixel::store(color, FileNames::RENDER_IMAGE, coords);
-    }
-
-    __device__ void render(int2 cornerCoords)
+    __device__ void focusAndRender(int2 cornerCoords)
     {
         int2 coords = cornerCoords;
-        int type{0};
+        int pixelID{0};
+        float focus{0};
         for(int x=0; x<2; x++)
             for(int y=0; y<2; y++)
             {
                 coords = cornerCoords + int2{x, y};
-                focusAndRender(coords, type);
-                type++;
+                focus += Focusing::bruteForce(coords, pixelID);
+                pixelID++;
+            }
+        focus /= 4;
+        for(int x=0; x<2; x++)
+            for(int y=0; y<2; y++)
+            {
+                coords = cornerCoords + int2{x, y};
+                auto color = FocusLevel::render(coords, focus);
+                color = FocusLevel::render(coords, Constants::scanStart(0));
+                Pixel::store(color, FileNames::RENDER_IMAGE, coords);
             }
     }
 
@@ -341,6 +330,6 @@ namespace Kernels
         int2 coords = getImgCoords();
         if(coordsOutside(coords, Constants::imgRes()))
             return;
-        render(coords); 
+        focusAndRender(coords);   
     }
 }
