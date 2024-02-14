@@ -320,7 +320,6 @@ namespace Kernels
             {
                 coords = cornerCoords + int2{x, y};
                 auto color = FocusLevel::render(coords, focus);
-                color = FocusLevel::render(coords, Constants::scanStart(0));
                 Pixel::store(color, FileNames::RENDER_IMAGE, coords);
             }
     }

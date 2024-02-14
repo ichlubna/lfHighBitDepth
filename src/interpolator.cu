@@ -198,7 +198,7 @@ void Interpolator::loadGPUOffsets(glm::vec2 viewCoordinates)
         for(int col=0; col<colsRows.x; col++) 
         {
             float2 offset{(viewCoordinates.x-col)/colsRows.x, (viewCoordinates.y-row)/colsRows.y};
-            offset.y *= resolution.y/aspect;
+            offset.y *= resolution.y*aspect;
             offset.x *= resolution.x;
             offsets[gridID] = offset;
             gridID++;
