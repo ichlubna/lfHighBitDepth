@@ -175,6 +175,7 @@ void Interpolator::loadGPUConstants(InterpolationParams params)
     float2 pixelSize{1.0f/resolution.x, 1.0f/resolution.y}; 
     floatValues[FloatConstantIDs::PX_SIZE_X_HALF] = pixelSize.x/2.0f;
     floatValues[FloatConstantIDs::PX_SIZE_Y_HALF] = pixelSize.y/2.0f;
+    floatValues[FloatConstantIDs::PARAMETER] = params.parameter;
     cudaMemcpyToSymbol(Kernels::Constants::floatConstants, floatValues.data(), floatValues.size() * sizeof(float));
 
     std::vector<void*> dataPointers(DataPointersIDs::POINTERS_COUNT);
@@ -182,8 +183,8 @@ void Interpolator::loadGPUConstants(InterpolationParams params)
     dataPointers[DataPointersIDs::TEXTURES] = reinterpret_cast<void*>(textureObjectsArr);
     cudaMemcpyToSymbol(Kernels::Constants::dataPointers, dataPointers.data(), dataPointers.size() * sizeof(void*));
             
-    constexpr int BLOCK_RADIUS = 1; 
-    std::vector<float2> blockOffsets{ {0, 0}, {1*BLOCK_RADIUS, 1*BLOCK_RADIUS}, {-1*BLOCK_RADIUS, -1*BLOCK_RADIUS}, {1*BLOCK_RADIUS, -1*BLOCK_RADIUS}, {-1*BLOCK_RADIUS, 1*BLOCK_RADIUS} };
+    constexpr int BLOCK_RADIUS = 2; 
+    std::vector<int2> blockOffsets{ {0, 0}, {1*BLOCK_RADIUS, 1*BLOCK_RADIUS}, {-1*BLOCK_RADIUS, -1*BLOCK_RADIUS}, {1*BLOCK_RADIUS, -1*BLOCK_RADIUS}, {-1*BLOCK_RADIUS, 1*BLOCK_RADIUS} };
     cudaMemcpyToSymbol(Kernels::Constants::blockOffsets, blockOffsets.data(), BLOCK_OFFSET_COUNT * sizeof(int2));
 }
 

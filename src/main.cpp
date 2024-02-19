@@ -14,6 +14,7 @@ int main(int argc, char **argv)
                           "-g - aspect ratio of the capturing camera spacing in horizontal / vertical axis, 1 means that the cameras are spaced equally in x and y\n"
                           "     if this option is not used or set to 0, the lf grid spacing is expected to be in the same ratio as resolution \n"
                           "-t - the number of kernel runs for time performance measurements\n"
+                          "-p - float parameter for debug purposes\n"
                           "Example:\n"
                           "lfHighBitDepth -i /MyAmazingMachine/theImages -o ./outputs -c 0.5_0.5 -g 1 -r 0.0_0.1\n"
                         };
@@ -41,6 +42,7 @@ int main(int argc, char **argv)
         .setCoordinates(coords)
         ->setScanRange(range)
         ->setOutputPath(static_cast<std::string>(args["-o"]))
+        ->setParameter(static_cast<float>(args["-p"]))
         ->setRuns(std::stoi(static_cast<std::string>(args["-t"])));
         interpolator.interpolate(params);
     }

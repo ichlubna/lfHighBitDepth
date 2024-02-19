@@ -31,7 +31,13 @@ class Interpolator
                 throw std::runtime_error("The start of the scan range has to be lower than the end!");
             return this;
         }
-        
+       
+        InterpolationParams* setParameter(float inputParameter)
+        {
+            parameter = inputParameter;
+            return this;
+        }
+ 
         InterpolationParams* setRuns(int runsCount)
         {
             if(runsCount < 0)
@@ -45,6 +51,7 @@ class Interpolator
         glm::vec2 coordinates;
         glm::vec2 scanRange{0,0.5};
         int runs{1};
+        float parameter{0};
         
         private:
         glm::vec3 parseCoordinates(std::string coordinates) const;

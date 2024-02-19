@@ -22,6 +22,7 @@ namespace Kernels
         __device__ float scanStart(int i){return floatConstants[FloatConstantIDs::SCAN_RANGE_START_1+i];}
         __device__ float scanStep(int i){return floatConstants[FloatConstantIDs::SCAN_RANGE_STEP_1+i];}
         __device__ float2 halfPixelSize(){return {floatConstants[FloatConstantIDs::PX_SIZE_X_HALF], floatConstants[FloatConstantIDs::PX_SIZE_Y_HALF]};}
+        __device__ float parameter(){return floatConstants[FloatConstantIDs::PARAMETER];}
 
         __device__ constexpr int MAX_IMAGES{4};
         __constant__ float weights[MAX_IMAGES];
@@ -104,7 +105,8 @@ namespace Kernels
         {
             int id = Constants::textures()[imageID];
             float2 halfPx = Constants::halfPixelSize(); 
-            return tex2D<float4>(id, coords.x+halfPx.x, coords.y+halfPx.y);
+            //return tex2D<float4>(id, coords.x+halfPx.x, coords.y+halfPx.y);
+            return tex2D<float4>(id, coords.x, coords.y);
         } 
 
         __device__ float4 gammaCorrect(float4 color)
@@ -163,6 +165,12 @@ namespace Kernels
             }
             return outColor;
         }
+
+        __device__ float4 transform(float4 color, int pixelID)
+        {
+            Constants::parameter();
+            return color;
+        }
     }
  
         class ElementRange
@@ -201,18 +209,19 @@ namespace Kernels
 
     namespace FocusLevel
     {      
-        __device__ void evaluateBlock(int gridID, float focus, int2 coords, ElementRange *dispersions)
+        __device__ void evaluateBlock(int gridID, float focus, int2 coords, ElementRange *dispersions, int pixelID)
         {
             for(int blockPx=0; blockPx<BLOCK_OFFSET_COUNT; blockPx++)
             {
                 int2 offset = Constants::blockOffsets[blockPx]; 
                 int2 inBlockCoords{coords.x+offset.x, coords.y+offset.y};
                 auto px{Pixel::load(gridID, focusCoords(gridID, inBlockCoords, focus))};
+                px = Pixel::transform(px, pixelID);
                 dispersions[blockPx] += px;
             }
         }
 
-        __device__ float evaluateDispersion(int2 coords, float focus)
+        __device__ float evaluateDispersion(int2 coords, float focus, int pixelID)
         {
             auto cr = Constants::colsRows();
             ElementRange dispersionCalc[BLOCK_OFFSET_COUNT];
@@ -223,7 +232,7 @@ namespace Kernels
                 gridID = row*cr.x;
                 for(int col=0; col<cr.x; col++) 
                 {
-                    evaluateBlock(gridID, focus, coords, dispersionCalc);
+                    evaluateBlock(gridID, focus, coords, dispersionCalc, pixelID);
                     gridID++;
                 }
             } 
@@ -294,7 +303,7 @@ namespace Kernels
             
             for(int step=0; step<FOCUS_STEPS_COUNT; step++)
             {
-                float dispersion = FocusLevel::evaluateDispersion(coords, focus);
+                float dispersion = FocusLevel::evaluateDispersion(coords, focus, pixelID);
                 optimum.add(focus, dispersion);
                 focus += stepSize;  
             }
